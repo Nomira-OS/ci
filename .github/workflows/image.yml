@@ -1,0 +1,124 @@
+# Reusable: build a container image, push it to ghcr, sign it with cosign
+# (keyless), attest its build provenance and scan it with Trivy.
+name: image
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: Image name without tag, lowercase, e.g. ghcr.io/nomira-os/nomira
+        type: string
+        required: true
+      tags:
+        description: Tags to publish, one per line. Never latest.
+        type: string
+        required: true
+      file:
+        type: string
+        default: Containerfile
+      platforms:
+        type: string
+        default: linux/amd64
+      build-args:
+        type: string
+        default: ""
+      push:
+        type: boolean
+        default: true
+      fail-on-vulnerabilities:
+        description: Fail on fixable CRITICAL or HIGH findings
+        type: boolean
+        default: false
+    outputs:
+      digest:
+        value: ${{ jobs.image.outputs.digest }}
+
+jobs:
+  image:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+      id-token: write         # cosign and provenance: keyless signing
+      attestations: write
+      security-events: write  # Trivy results
+      actions: read
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Compute tags
+        id: tags
+        env:
+          IMAGE: ${{ inputs.image }}
+          TAGS: ${{ inputs.tags }}
+        shell: bash   # pipefail, so a rejected tag fails the step
+        run: |
+          {
+            echo "list<<EOF_TAGS"
+            printf '%s\n' "$TAGS" | sed '/^[[:space:]]*$/d' | while read -r t; do
+              [ "$t" = latest ] && { echo "latest is not allowed" >&2; exit 1; }
+              echo "$IMAGE:$t"
+            done
+            echo "EOF_TAGS"
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ inputs.file }}
+          platforms: ${{ inputs.platforms }}
+          build-args: ${{ inputs.build-args }}
+          push: ${{ inputs.push }}
+          tags: ${{ steps.tags.outputs.list }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        if: inputs.push
+      - name: Sign image
+        if: inputs.push
+        run: cosign sign --yes "${{ inputs.image }}@${{ steps.build.outputs.digest }}"
+      - name: Attest build provenance
+        if: inputs.push
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        with:
+          subject-name: ${{ inputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - name: Trivy scan
+        if: inputs.push
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ inputs.image }}@${{ steps.build.outputs.digest }}
+          format: sarif
+          output: trivy-results.sarif
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ github.token }}
+      - name: Upload Trivy results
+        if: inputs.push && hashFiles('trivy-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-image
+      - name: Fail on fixable CRITICAL or HIGH findings
+        if: inputs.push && inputs.fail-on-vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ inputs.image }}@${{ steps.build.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ github.token }}

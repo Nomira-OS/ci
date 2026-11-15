@@ -1,0 +1,16 @@
+# .github/workflows/ci.yml in a project repository (here: nomira-cli)
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    uses: Nomira-OS/ci/.github/workflows/checks.yml@main
+  go:
+    uses: Nomira-OS/ci/.github/workflows/go.yml@main

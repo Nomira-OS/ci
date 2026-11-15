@@ -1,0 +1,37 @@
+# Shared git-cliff configuration: versions and changelogs are derived from
+# Conventional Commits.
+
+[changelog]
+body = """
+{% if version %}## {{ version }} ({{ timestamp | date(format="%Y-%m-%d") }}){% else %}## Unreleased{% endif %}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{% if commit.breaking %}**BREAKING** {% endif %}{{ commit.message | upper_first }} ({{ commit.id | truncate(length=7, end="") }})
+{%- endfor %}
+{% endfor %}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+# Only final releases count as tags; beta tags are invisible to git-cliff, so
+# version and changelog are always relative to the last final release.
+tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+sort_commits = "oldest"
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->Features" },
+  { message = "^fix", group = "<!-- 1 -->Fixes" },
+  { message = "^perf", group = "<!-- 2 -->Performance" },
+  { message = "^revert", group = "<!-- 3 -->Reverts" },
+  { message = "^docs", group = "<!-- 4 -->Documentation" },
+  { message = "^(build|ci|chore|refactor|style|test)", skip = true },
+]
+
+[bump]
+initial_tag = "v0.1.0"
+# Before 1.0, features and breaking changes both bump the minor version.
+# Going to 1.0.0 is a deliberate step: tag it by hand.
+features_always_bump_minor = true
+breaking_always_bump_major = false

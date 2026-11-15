@@ -1,0 +1,54 @@
+# Reusable: create a release from the Conventional Commits since the last
+# final release. Tags the current commit and publishes a GitHub release
+# whose notes are the changelog. Called from a manually triggered workflow.
+name: release
+
+on:
+  workflow_call:
+    inputs:
+      channel:
+        description: beta or final
+        type: string
+        required: true
+      dry-run:
+        description: Only print version and changelog
+        type: boolean
+        default: false
+    outputs:
+      tag:
+        description: The tag that was created, e.g. v0.3.0-beta.1
+        value: ${{ jobs.release.outputs.tag }}
+      version:
+        description: The tag without the leading v
+        value: ${{ jobs.release.outputs.version }}
+
+jobs:
+  release:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Nomira-OS/ci
+          path: .ci
+      - name: Install git-cliff
+        # renovate: datasource=pypi depName=git-cliff
+        run: pipx install git-cliff==2.14.2
+      - name: Release
+        id: release
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          DRY_RUN: ${{ inputs.dry-run }}
+          CLIFF_CONFIG: .ci/cliff.toml
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          sh .ci/scripts/release.sh

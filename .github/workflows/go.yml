@@ -1,0 +1,49 @@
+# Reusable: format, vet, test and build a Go module.
+name: go
+
+on:
+  workflow_call:
+    inputs:
+      extra:
+        description: Additional shell commands to run after the tests
+        type: string
+        default: ""
+      trivy:
+        description: Scan the repository with Trivy and fail on fixable CRITICAL or HIGH findings
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: ${{ hashFiles('go.sum') != '' }}
+      - name: gofmt
+        run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go build ./...
+      - name: Extra checks
+        if: inputs.extra != ''
+        run: ${{ inputs.extra }}
+
+  trivy:
+    if: inputs.trivy
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH

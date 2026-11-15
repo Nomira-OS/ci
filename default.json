@@ -1,0 +1,43 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Shared Renovate preset of the Nomira-OS organization. Use with: \"extends\": [\"github>Nomira-OS/ci\"]",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests",
+    "docker:pinDigests",
+    ":semanticCommits"
+  ],
+  "packageRules": [
+    {
+      "description": "CI-only updates do not trigger a release",
+      "matchManagers": ["github-actions"],
+      "semanticCommitType": "ci"
+    },
+    {
+      "description": "Dependency updates that end up in a released artifact are fixes",
+      "matchManagers": ["gomod", "dockerfile", "custom.regex"],
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin", "pinDigest"],
+      "semanticCommitType": "fix"
+    },
+    {
+      "description": "Image references in source constants keep their tag; a digest cannot be written back there",
+      "matchManagers": ["custom.regex"],
+      "pinDigests": false
+    },
+    {
+      "description": "Automerge everything except major updates",
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin", "pinDigest"],
+      "automerge": true
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Image references in Go constants marked with a renovate comment",
+      "managerFilePatterns": ["/\\.go$/"],
+      "matchStrings": [
+        "// renovate: datasource=(?<datasource>\\S+)\\s+(?:const\\s+)?\\w+\\s*=\\s*\"(?<depName>[^\":]+):(?<currentValue>[^\"@]+)\""
+      ]
+    }
+  ]
+}
