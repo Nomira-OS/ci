@@ -31,5 +31,5 @@ of copying them.
   version as a trailing comment; runners by version.
 - **Scripts are POSIX sh** and must pass `shellcheck`.
 - **Licence:** EUPL-1.2, declared through `REUSE.toml`; `reuse lint` must pass.
-- **Languages:** README is German. Workflows, scripts, comments, commit
-  messages and this file are English.
+- **Language:** everything is English: README, docs, code, comments and
+  commit messages.

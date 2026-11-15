@@ -1,64 +1,63 @@
 # ci
 
-Gemeinsame CI der Organisation Nomira-OS. Die Projekte rufen die
-Workflows hier auf, statt sie zu kopieren.
+Shared CI of the Nomira-OS organisation. The projects call the workflows
+here instead of copying them.
 
+## Building blocks
 
-## Bausteine
-
-| Workflow | Aufgabe |
+| Workflow | Job |
 |---|---|
-| `checks.yml` | REUSE-Lizenzprüfung und Conventional Commits |
-| `go.yml` | gofmt, vet, test, build für ein Go-Modul; auf Wunsch ein Trivy-Scan, der bei Funden abbricht |
-| `image.yml` | Image bauen, nach ghcr veröffentlichen, mit cosign signieren, Herkunftsnachweis, Trivy-Scan |
-| `release.yml` | Release aus den Commits: Version bestimmen, Tag setzen, GitHub-Release mit Changelog |
+| `checks.yml` | REUSE licence check and Conventional Commits |
+| `go.yml` | gofmt, vet, test, build for a Go module; optionally a Trivy scan that fails on findings |
+| `image.yml` | build an image, publish it to ghcr, sign it with cosign, attest provenance, Trivy scan |
+| `release.yml` | release from the commits: determine the version, set the tag, GitHub release with changelog |
 
-Dazu `default.json`, die gemeinsame Renovate-Vorlage. Ein Projekt bindet
-sie mit `"extends": ["github>Nomira-OS/ci"]` ein.
+Plus `default.json`, the shared Renovate preset. A project pulls it in
+with `"extends": ["local>Nomira-OS/ci"]`.
 
-## Ablauf
+## Process
 
-Entwickelt wird auf `main`. Bei jedem Push laufen `checks` und die Tests
-des Projekts. Veröffentlicht wird nur von Hand: Im Actions-Tab des
-Projekts „release“ starten und den Kanal wählen.
+Development happens on `main`. Every push runs `checks` and the tests of
+the project. Publishing happens only by hand: start "release" in the
+Actions tab of the project and choose the channel.
 
-| Kanal | Ergebnis |
+| Channel | Result |
 |---|---|
-| `beta` | Tag `vX.Y.Z-beta.N`, als Vorabversion markiert |
-| `final` | Tag `vX.Y.Z` |
+| `beta` | tag `vX.Y.Z-beta.N`, marked as a pre-release |
+| `final` | tag `vX.Y.Z` |
 
-Jedes Release bekommt einen Tag und ein Changelog aus den Commits; das
-Changelog steht im GitHub-Release und in der Tag-Nachricht. Mit
-`dry-run` zeigt der Lauf nur Version und Changelog.
+Every release gets a tag and a changelog from the commits; the changelog
+is in the GitHub release and in the tag message. With `dry-run` the run
+only shows version and changelog.
 
-## Versionen
+## Versions
 
-Die Version folgt aus den Conventional Commits seit dem letzten finalen
-Release (git-cliff, Konfiguration in `cliff.toml`):
+The version follows from the Conventional Commits since the last final
+release (git-cliff, configured in `cliff.toml`):
 
-| Commits | vor 1.0 | ab 1.0 |
+| Commits | before 1.0 | from 1.0 |
 |---|---|---|
-| `fix:`, `perf:` | Patch | Patch |
-| `feat:` | Minor | Minor |
-| `!` oder `BREAKING CHANGE` | Minor | Major |
-| nur `docs:`, `chore:`, `ci:` … | kein Release | kein Release |
+| `fix:`, `perf:` | patch | patch |
+| `feat:` | minor | minor |
+| `!` or `BREAKING CHANGE` | minor | major |
+| only `docs:`, `chore:`, `ci:` … | no release | no release |
 
-Beta-Tags zählen nicht als Release: Mehrere Betas zählen `-beta.1`,
-`-beta.2` hoch, und das finale Release enthält im Changelog alles seit
-dem letzten finalen. Ein Beta-Stand lässt sich ohne neuen Commit final
-veröffentlichen. Der Schritt auf 1.0.0 geschieht bewusst von Hand.
+Beta tags do not count as a release: several betas count up `-beta.1`,
+`-beta.2`, and the changelog of the final release contains everything
+since the last final one. A beta can be published as final without a new
+commit. The step to 1.0.0 is taken deliberately by hand.
 
-## Einbinden
+## Using it
 
-Siehe `examples/ci.yml` und `examples/release.yml`.
+See `examples/ci.yml` and `examples/release.yml`.
 
-## Lokal ausprobieren
+## Trying it locally
 
 ```sh
 pipx install git-cliff==2.14.2
-CHANNEL=beta DRY_RUN=true CLIFF_CONFIG=/pfad/zu/ci/cliff.toml sh /pfad/zu/ci/scripts/release.sh
+CHANNEL=beta DRY_RUN=true CLIFF_CONFIG=/path/to/ci/cliff.toml sh /path/to/ci/scripts/release.sh
 ```
 
-## Lizenz
+## Licence
 
-EUPL-1.2, siehe `LICENSES/`. Die Angaben je Datei stehen in `REUSE.toml`.
+EUPL-1.2, see `LICENSES/`. Per-file information is in `REUSE.toml`.
