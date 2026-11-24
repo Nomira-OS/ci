@@ -122,20 +122,22 @@ jobs:
           command -v podman >/dev/null && command -v skopeo >/dev/null || {
             sudo apt-get update -q && sudo apt-get install -y -q podman skopeo
           }
-          skopeo copy -q "oci-archive:${RUNNER_TEMP}/flat.tar" containers-storage:localhost/flat:latest
+          # Rootful: the runner forbids unprivileged user namespaces.
+          sudo skopeo copy -q "oci-archive:${RUNNER_TEMP}/flat.tar" containers-storage:localhost/flat:latest
           rm "${RUNNER_TEMP}/flat.tar"
-          CHUNKAH_CONFIG_STR="$(podman inspect localhost/flat:latest)"
+          CHUNKAH_CONFIG_STR="$(sudo podman inspect localhost/flat:latest)"
           export CHUNKAH_CONFIG_STR
           mkdir -p "${RUNNER_TEMP}/chunked"
           # chunkah reads the package database (rpm or pacman) of the image
           # to group files, and clamps timestamps to SOURCE_DATE_EPOCH.
-          podman run --rm \
+          sudo --preserve-env=CHUNKAH_CONFIG_STR,SOURCE_DATE_EPOCH podman run --rm \
             --mount=type=image,src=localhost/flat:latest,dst=/chunkah \
             --mount=type=bind,src="${RUNNER_TEMP}/chunked",dst=/out \
             -e CHUNKAH_CONFIG_STR -e SOURCE_DATE_EPOCH \
             "$CHUNKAH_IMAGE" \
             build --max-layers "$LAYERS" --compressed --output oci:/out/oci -t chunked
-          podman rmi localhost/flat:latest
+          sudo podman rmi localhost/flat:latest
+          sudo chown -R "$(id -u):$(id -g)" "${RUNNER_TEMP}/chunked"
           echo "layers: $(skopeo inspect --raw oci:${RUNNER_TEMP}/chunked/oci:chunked | jq '.layers | length')"
       - name: Push the split image
         if: inputs.chunk-layers > 0 && inputs.push
