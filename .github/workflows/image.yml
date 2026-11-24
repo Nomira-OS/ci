@@ -178,7 +178,9 @@ jobs:
         run: |
           COSIGN_REPOSITORY="${IMAGE%/*}/signatures/${IMAGE##*/}"
           export COSIGN_REPOSITORY
-          cosign sign --yes "${IMAGE}@${DIGEST}"
+          # cosign's new bundle format ignores COSIGN_REPOSITORY and stores
+          # the signature next to the image; the classic format honours it.
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false "${IMAGE}@${DIGEST}"
       - name: Attest build provenance
         if: inputs.push
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
