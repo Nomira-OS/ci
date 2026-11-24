@@ -190,7 +190,7 @@ jobs:
         if: inputs.push
         env:
           IMAGE: ${{ inputs.image }}
-        run: skopeo list-tags "docker://${IMAGE}" | jq -r '.Tags[]' | sort
+        run: skopeo list-tags "docker://${IMAGE}" | jq -r '.Tags[]' | sort || true
       - name: Trivy scan
         if: inputs.push
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
