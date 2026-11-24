@@ -1,5 +1,10 @@
 # Reusable: build a container image, push it to ghcr, sign it with cosign
 # (keyless), attest its build provenance and scan it with Trivy.
+#
+# With chunk-layers > 0 the built image is split into content-based layers
+# with chunkah before it is pushed: files are grouped by the package that
+# owns them (rpm or pacman database), so an update to one package changes
+# one layer instead of a large one. Single platform only.
 name: image
 
 on:
@@ -29,6 +34,14 @@ on:
         description: Fail on fixable CRITICAL or HIGH findings
         type: boolean
         default: false
+      source-date-epoch:
+        description: SOURCE_DATE_EPOCH for the build and for chunkah; empty for none
+        type: string
+        default: ""
+      chunk-layers:
+        description: Split the image into at most this many layers with chunkah; 0 for no splitting
+        type: number
+        default: 0
     outputs:
       digest:
         value: ${{ jobs.image.outputs.digest }}
@@ -45,7 +58,11 @@ jobs:
       security-events: write  # Trivy results
       actions: read
     outputs:
-      digest: ${{ steps.build.outputs.digest }}
+      digest: ${{ steps.digest.outputs.value }}
+    env:
+      SOURCE_DATE_EPOCH: ${{ inputs.source-date-epoch }}
+      # renovate: datasource=docker depName=quay.io/coreos/chunkah
+      CHUNKAH_IMAGE: quay.io/coreos/chunkah:v0.7.1@sha256:71e593421c5de7dcc7c8c5c50e98d3bac572055a76f399f61a491d123c20a523
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Compute tags
@@ -70,6 +87,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
       - id: build
+        if: inputs.chunk-layers == 0 || !inputs.push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -80,23 +98,83 @@ jobs:
           tags: ${{ steps.tags.outputs.list }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # --- chunked: build to an archive, split with chunkah, push with skopeo
+      - id: build-flat
+        if: inputs.chunk-layers > 0 && inputs.push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ inputs.file }}
+          platforms: ${{ inputs.platforms }}
+          build-args: ${{ inputs.build-args }}
+          outputs: type=oci,dest=${{ runner.temp }}/flat.tar
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Split into layers with chunkah
+        if: inputs.chunk-layers > 0 && inputs.push
+        env:
+          LAYERS: ${{ inputs.chunk-layers }}
+          PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          set -eu
+          case "$PLATFORMS" in *,*) echo "chunk-layers needs a single platform" >&2; exit 1 ;; esac
+          command -v podman >/dev/null && command -v skopeo >/dev/null || {
+            sudo apt-get update -q && sudo apt-get install -y -q podman skopeo
+          }
+          skopeo copy -q "oci-archive:${RUNNER_TEMP}/flat.tar" containers-storage:localhost/flat:latest
+          rm "${RUNNER_TEMP}/flat.tar"
+          CHUNKAH_CONFIG_STR="$(podman inspect localhost/flat:latest)"
+          export CHUNKAH_CONFIG_STR
+          mkdir -p "${RUNNER_TEMP}/chunked"
+          # chunkah reads the package database (rpm or pacman) of the image
+          # to group files, and clamps timestamps to SOURCE_DATE_EPOCH.
+          podman run --rm \
+            --mount=type=image,src=localhost/flat:latest,dst=/chunkah \
+            --mount=type=bind,src="${RUNNER_TEMP}/chunked",dst=/out \
+            -e CHUNKAH_CONFIG_STR -e SOURCE_DATE_EPOCH \
+            "$CHUNKAH_IMAGE" \
+            build --max-layers "$LAYERS" --compressed --output oci:/out/oci -t chunked
+          podman rmi localhost/flat:latest
+          echo "layers: $(skopeo inspect --raw oci:${RUNNER_TEMP}/chunked/oci:chunked | jq '.layers | length')"
+      - name: Push the split image
+        if: inputs.chunk-layers > 0 && inputs.push
+        id: push-chunked
+        env:
+          LIST: ${{ steps.tags.outputs.list }}
+          IMAGE: ${{ inputs.image }}
+          TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -eu
+          printf '%s' "$TOKEN" | skopeo login ghcr.io -u "$ACTOR" --password-stdin
+          printf '%s\n' "$LIST" | while read -r ref; do
+            [ -n "$ref" ] && skopeo copy -q --preserve-digests "oci:${RUNNER_TEMP}/chunked/oci:chunked" "docker://$ref"
+          done
+          first="$(printf '%s\n' "$LIST" | head -n 1)"
+          echo "digest=$(skopeo inspect --format '{{.Digest}}' "docker://$first")" >> "$GITHUB_OUTPUT"
+      - id: digest
+        env:
+          PLAIN: ${{ steps.build.outputs.digest }}
+          CHUNKED: ${{ steps.push-chunked.outputs.digest }}
+        run: echo "value=${CHUNKED:-$PLAIN}" >> "$GITHUB_OUTPUT"
       - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
         if: inputs.push
       - name: Sign image
         if: inputs.push
-        run: cosign sign --yes "${{ inputs.image }}@${{ steps.build.outputs.digest }}"
+        run: cosign sign --yes "${{ inputs.image }}@${{ steps.digest.outputs.value }}"
       - name: Attest build provenance
         if: inputs.push
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
         with:
           subject-name: ${{ inputs.image }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-digest: ${{ steps.digest.outputs.value }}
           push-to-registry: true
       - name: Trivy scan
         if: inputs.push
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ inputs.image }}@${{ steps.build.outputs.digest }}
+          image-ref: ${{ inputs.image }}@${{ steps.digest.outputs.value }}
           format: sarif
           output: trivy-results.sarif
           ignore-unfixed: true
@@ -114,7 +192,7 @@ jobs:
         if: inputs.push && inputs.fail-on-vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ inputs.image }}@${{ steps.build.outputs.digest }}
+          image-ref: ${{ inputs.image }}@${{ steps.digest.outputs.value }}
           format: table
           exit-code: "1"
           ignore-unfixed: true
