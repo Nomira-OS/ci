@@ -6,7 +6,7 @@ Guidance for coding agents (and humans) working in this repository.
 
 The shared CI of the Nomira-OS organization: reusable GitHub workflows,
 the release script and the Renovate preset. The project repositories
-(`nomira`, `nomira-cli`, `nomira-image`, `nomira-web`) call these instead
+(`nomira`, `nomira-cli`, `arch-base`, `nomira-web`) call these instead
 of copying them.
 
 ## Layout
