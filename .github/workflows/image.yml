@@ -15,7 +15,9 @@ on:
         type: string
         required: true
       tags:
-        description: Tags to publish, one per line. Never latest.
+        description: >-
+          Tags to publish, one per line. latest is only published from the
+          default branch; elsewhere it is left out.
         type: string
         required: true
       file:
@@ -70,12 +72,16 @@ jobs:
         env:
           IMAGE: ${{ inputs.image }}
           TAGS: ${{ inputs.tags }}
+          DEFAULT_REF: refs/heads/${{ github.event.repository.default_branch }}
         shell: bash   # pipefail, so a rejected tag fails the step
         run: |
           {
             echo "list<<EOF_TAGS"
             printf '%s\n' "$TAGS" | sed '/^[[:space:]]*$/d' | while read -r t; do
-              [ "$t" = latest ] && { echo "latest is not allowed" >&2; exit 1; }
+              if [ "$t" = latest ] && [ "$GITHUB_REF" != "$DEFAULT_REF" ]; then
+                echo "::notice::latest is only published from the default branch" >&2
+                continue
+              fi
               echo "$IMAGE:$t"
             done
             echo "EOF_TAGS"

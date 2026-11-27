@@ -27,7 +27,7 @@ of copying them.
   (see README) and say what you could not run.
 - **Conventional Commits** for every commit; releases are cut by hand
   from the Actions tab, never by pushing a tag.
-- **Versions are pinned.** Never `latest`; actions by commit SHA with the
+- **Versions are pinned.** Never consume `latest`; actions by commit SHA with the
   version as a trailing comment; runners by version.
 - **Scripts are POSIX sh** and must pass `shellcheck`.
 - **Licence:** EUPL-1.2, declared through `REUSE.toml`; `reuse lint` must pass.
